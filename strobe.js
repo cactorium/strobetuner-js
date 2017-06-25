@@ -166,18 +166,25 @@ function StrobeTuner(audioCtx, glCtx) {
 
       var scale = 1.0
       if (me.autoGain) {
-        var bufMax = 0.001
+        /*
+        var bufMax = 0.0001
         for (var i = 0; i < me.bufferLen; i++) {
           var absVal = Math.abs(me.buffer[i])
           if (bufMax < absVal) {
             bufMax = absVal
           }
         }
+        */
+        var bufMax = 0.0
+        for (var i = 0; i < me.bufferLen; i++) {
+          bufMax += me.buffer[i]*me.buffer[i]
+        }
+        bufMax = Math.sqrt(bufMax/me.bufferLen)
         scale = 0.01/bufMax
       }
 
       for (var i = 0; i < me.bufferLen; i++) {
-        var curOffset = (me.sampleOffset - me.bufLen + i)*me.baseFrequency/me.sampleRate
+        var curOffset = (me.sampleOffset - me.bufferLen + i)*me.baseFrequency/me.sampleRate
         var phaseOffset = (curOffset + 0.5) - Math.floor(curOffset + 0.5)
 
         var val = me.buffer[i]*scale
