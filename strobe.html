@@ -4,6 +4,7 @@
     <title>HTML5 Strobe Tuner</title>
     <script src=strobe.js type=text/javascript></script>
   <script type=text/javascript>
+'use strict'
 var canvas = null
 var active = null
 
@@ -24,7 +25,7 @@ window.onload = function() {
   audioCtx = new AudioContext()
   microphoneNode = null
   gainNode = null
-  strobe = new Strobe(audioCtx)
+  strobe = new StrobeTuner(audioCtx, glCtx)
 
   var getMicrophone = function(cb) {
     navigator.mediaDevices.getUserMedia({audio: true}).
@@ -103,7 +104,7 @@ window.onload = function() {
   </script>
   </head>
   <body>
-    <canvas id=strobe width=512 height=512>
+    <canvas id=strobe width=128 height=128>
       Sorry, your browser needs to support canvas to use this webpage
     </canvas>
     <div id=strobe-ui>
