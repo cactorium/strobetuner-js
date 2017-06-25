@@ -1,8 +1,5 @@
 'use strict'
-// TODO
 
-var t = 0.5
-// TODO
 function StrobeTuner(audioCtx, glCtx) {
   var me = this
   var log = function(str) {
@@ -15,9 +12,9 @@ function StrobeTuner(audioCtx, glCtx) {
   this.sampleRate = 0
 
   this.baseFrequency = 440.0
-  this.timeOffset = 0.0
+  this.sampleOffset = 0
 
-  this.offset = 0.0
+  this.autoGain = true
 
   this.newData = false
   this.audioNode = audioCtx.createScriptProcessor(256)
@@ -179,16 +176,30 @@ function StrobeTuner(audioCtx, glCtx) {
       if (me.bufferLen <= 0) {
         return
       }
+      console.log(me.bufferLen)
+      console.log(me.sampleOffset)
       // glCtx.enableVertexAttribArray(vertexTexCoord)
 
       var vertexData = new Float32Array(4*(2+3)*me.bufferLen)
       var vertexIdxs = new Uint16Array(2*3*me.bufferLen)
 
+      var scale = 1.0
+      if (me.autoGain) {
+        var bufMax = 0.001
+        for (var i = 0; i < me.bufferLen; i++) {
+          var absVal = Math.abs(me.buffer[i])
+          if (bufMax < absVal) {
+            bufMax = absVal
+          }
+        }
+        scale = 0.01/bufMax
+      }
+
       for (var i = 0; i < me.bufferLen; i++) {
-        var curOffset = me.timeOffset + i*me.baseFrequency/me.sampleRate
+        var curOffset = (me.sampleOffset + i)*me.baseFrequency/me.sampleRate
         var phaseOffset = (curOffset + 0.5) - Math.floor(curOffset + 0.5)
 
-        var val = me.buffer[i] + me.offset
+        var val = me.buffer[i]*scale
         vertexData[(2+3)*(4*i+0) + 0] = 1.0
         vertexData[(2+3)*(4*i+0) + 1] = 2.0 + phaseOffset
         vertexData[(2+3)*(4*i+0) + 2] = 1.0
@@ -213,6 +224,9 @@ function StrobeTuner(audioCtx, glCtx) {
         vertexData[(2+3)*(4*i+3) + 3] = 2.0
         vertexData[(2+3)*(4*i+3) + 4] = val
       }
+      me.sampleOffset = me.sampleOffset + me.bufferLen
+      me.sampleOffset = me.sampleOffset - Math.floor(me.sampleOffset*me.baseFrequency/me.sampleRate)/(me.baseFrequency/me.sampleRate)
+
       for (var i = 0; i < me.bufferLen; i++) {
         vertexIdxs[2*3*i + 0] = 4*i + 0;
         vertexIdxs[2*3*i + 1] = 4*i + 1;
@@ -235,7 +249,7 @@ function StrobeTuner(audioCtx, glCtx) {
       glCtx.bufferData(glCtx.ELEMENT_ARRAY_BUFFER, vertexIdxs, glCtx.DYNAMIC_DRAW)
 
       glCtx.uniform1f(gainUniform, (me.brightGain/me.bufferLen))
-      glCtx.uniform1f(offsetUniform, me.brightOffset)
+      glCtx.uniform1f(offsetUniform, me.brightOffset/me.bufferLen)
 
       glCtx.drawElements(glCtx.TRIANGLES, 2*me.bufferLen, glCtx.UNSIGNED_SHORT, 0)
       glCtx.finish()

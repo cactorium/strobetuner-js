@@ -15,6 +15,15 @@ var strobe = null
 
 var glCtx = null
 
+function lin2db(x) {
+  return 10*Math.log10(x)
+}
+
+function db2lin(x) {
+  return Math.pow(10, 0.1*x)
+}
+
+
 
 window.onload = function() {
   canvas = document.getElementById('strobe')
@@ -24,14 +33,13 @@ window.onload = function() {
 
   audioCtx = new AudioContext()
   microphoneNode = null
-  gainNode = null
+  gainNode = audioCtx.createGain()
   strobe = new StrobeTuner(audioCtx, glCtx)
 
   var getMicrophone = function(cb) {
     navigator.mediaDevices.getUserMedia({audio: true}).
       then(function(stream) {
         microphoneNode = audioCtx.createMediaStreamSource(stream)
-        gainNode = audioCtx.createGain()
 
           if (cb !== null) {
           cb()
@@ -50,9 +58,6 @@ window.onload = function() {
   var disconnectMicrophone = function() {
     if (microphoneNode !== null) {
       microphoneNode.disconnect()
-    }
-    if (gainNode !== null) {
-      gainNode.disconnect()
     }
     if (strobe !== null && strobe.audioNode !== null) {
       strobe.audioNode.disconnect()
@@ -86,7 +91,7 @@ window.onload = function() {
 
   active.addEventListener('change', function() {
     if (active.checked) {
-      if (microphoneNode !== null && gainNode !== null) {
+      if (microphoneNode !== null) {
         connectMicrophone()
         startDrawloop()
       } else {
@@ -100,16 +105,61 @@ window.onload = function() {
       stopDrawloop()
     }
   })
+
+  var pitch = document.getElementById('strobe-pitch')
+  var gain = document.getElementById('strobe-gain')
+  var gainVal = document.getElementById('strobe-gain-val2')
+  var bright = document.getElementById('strobe-bright')
+  var brightVal = document.getElementById('strobe-bright-val')
+  var contrast = document.getElementById('strobe-contrast')
+  var contrastVal = document.getElementById('strobe-contrast-val')
+  var autoGain = document.getElementById('strobe-agc')
+
+  // initialize all values based on StrobeTuner default values
+  pitch.value = 440
+  gain.value = lin2db(gainNode.gain.value)
+  gainVal.textContent = lin2db(gainNode.gain.value).toString()
+  bright.value = strobe.brightOffset
+  brightVal.textContent = strobe.brightOffset.toString()
+  contrast.value = strobe.brightGain
+  contrastVal.textContent = strobe.brightGain.toString()
+
+  gain.addEventListener('input', function() {
+    document.getElementById('strobe-gain-val').textContext = gainNode.gain.value;
+    gainNode.gain.value = db2lin(gain.value);
+    console.log(gainVal, gain.value, gainNode.gain.value, gainVal.textContent);
+  })
+  bright.addEventListener('input', function() {
+    strobe.brightOffset = bright.value
+    brightVal.textContent = bright.value.toString()
+  })
+  contrast.addEventListener('input', function() {
+    strobe.brightGain = contrast.value
+    contrastVal.textContent = contrast.value.toString()
+  })
+  autoGain.addEventListener('change', function() {
+    strobe.autoGain = autoGain.checked
+  })
+
 }
   </script>
   </head>
   <body>
-    <canvas id=strobe width=128 height=128>
+    <canvas id=strobe width=128 height=256>
       Sorry, your browser needs to support canvas to use this webpage
     </canvas>
     <div id=strobe-ui>
       <noscript>Javascript needs to be enabled to use this webpage</noscript>
-      <input id=strobe-active type=checkbox>Activate strobe tuner</input>
+      <input id=strobe-active type=checkbox>Activate strobe tuner</input> <br />
+      A4 = <input id=strobe-pitch type=number value=440></input> Hz<br />
+      Gain: <input id=strobe-gain type=range min=-10 max=20 step=0.01></input>
+      <span id=strobe-gain-val></span>
+      <input id=strobe-agc type=checkbox checked>AGC</input><br />
+      Brightness: <input id=strobe-bright type=range min=-1 max=1 step=0.01></input>
+      <span id=strobe-bright-val></span><br />
+      Contrast: <input id=strobe-contrast type=range min=0 max=1000 step=0.01></input>
+      <span id=strobe-contrast-val></span><br />
+      <span id=strobe-gain-val2></span><br />
     </div>
   </body>
 </html>
