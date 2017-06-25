@@ -13,14 +13,17 @@ function StrobeTuner(audioCtx, glCtx) {
   this.buffer = new Float32Array(StrobeTuner.BUF_SZ)
   this.bufferLen = 0
   this.sampleRate = 0
-  this.offset = 1.0
+
   this.baseFrequency = 440.0
+  this.timeOffset = 0.0
+
+  this.offset = 0.0
 
   this.newData = false
-  this.audioNode = audioCtx.createScriptProcessor()
+  this.audioNode = audioCtx.createScriptProcessor(256)
   this.audioNode.onaudioprocess = function(e) {
     var buf = e.inputBuffer
-    log('got data')
+    // log('got data')
     // log(buf)
 
     me.sampleRate = buf.sampleRate
@@ -95,7 +98,7 @@ function StrobeTuner(audioCtx, glCtx) {
   var draw = null
   var clearGlState = null
 
-  this.brightGain = 1.00
+  this.brightGain = 100.00
   this.brightOffset = 0.00
 
   var initManyPoly = function() {
@@ -182,29 +185,32 @@ function StrobeTuner(audioCtx, glCtx) {
       var vertexIdxs = new Uint16Array(2*3*me.bufferLen)
 
       for (var i = 0; i < me.bufferLen; i++) {
+        var curOffset = me.timeOffset + i*me.baseFrequency/me.sampleRate
+        var phaseOffset = (curOffset + 0.5) - Math.floor(curOffset + 0.5)
+
         var val = me.buffer[i] + me.offset
         vertexData[(2+3)*(4*i+0) + 0] = 1.0
-        vertexData[(2+3)*(4*i+0) + 1] = 2.0
+        vertexData[(2+3)*(4*i+0) + 1] = 2.0 + phaseOffset
         vertexData[(2+3)*(4*i+0) + 2] = 1.0
-        vertexData[(2+3)*(4*i+0) + 3] = 1.0
+        vertexData[(2+3)*(4*i+0) + 3] = 2.0
         vertexData[(2+3)*(4*i+0) + 4] = val
 
         vertexData[(2+3)*(4*i+1) + 0] = 1.0
-        vertexData[(2+3)*(4*i+1) + 1] = -2.0
+        vertexData[(2+3)*(4*i+1) + 1] = -2.0 + phaseOffset
         vertexData[(2+3)*(4*i+1) + 2] = 1.0
-        vertexData[(2+3)*(4*i+1) + 3] = -1.0
+        vertexData[(2+3)*(4*i+1) + 3] = 0.0
         vertexData[(2+3)*(4*i+1) + 4] = val
 
         vertexData[(2+3)*(4*i+2) + 0] = -1.0
-        vertexData[(2+3)*(4*i+2) + 1] = -2.0
+        vertexData[(2+3)*(4*i+2) + 1] = -2.0 + phaseOffset
         vertexData[(2+3)*(4*i+2) + 2] = 0.0
-        vertexData[(2+3)*(4*i+2) + 3] = -1.0
+        vertexData[(2+3)*(4*i+2) + 3] = 0.0
         vertexData[(2+3)*(4*i+2) + 4] = val
 
         vertexData[(2+3)*(4*i+3) + 0] = -1.0
-        vertexData[(2+3)*(4*i+3) + 1] = 2.0
+        vertexData[(2+3)*(4*i+3) + 1] = 2.0 + phaseOffset
         vertexData[(2+3)*(4*i+3) + 2] = 0.0
-        vertexData[(2+3)*(4*i+3) + 3] = 1.0
+        vertexData[(2+3)*(4*i+3) + 3] = 2.0
         vertexData[(2+3)*(4*i+3) + 4] = val
       }
       for (var i = 0; i < me.bufferLen; i++) {
@@ -216,8 +222,7 @@ function StrobeTuner(audioCtx, glCtx) {
         vertexIdxs[2*3*i + 5] = 4*i + 3;
       }
 
-      log(me.bufferLen)
-      log(vertexData.slice(0, 6))
+      // log(me.bufferLen)
       glCtx.bindBuffer(glCtx.ARRAY_BUFFER, vertexBuf)
       glCtx.bufferData(glCtx.ARRAY_BUFFER, vertexData, glCtx.DYNAMIC_DRAW)
 
@@ -229,7 +234,7 @@ function StrobeTuner(audioCtx, glCtx) {
       glCtx.bindBuffer(glCtx.ELEMENT_ARRAY_BUFFER, vertexIndexBuf)
       glCtx.bufferData(glCtx.ELEMENT_ARRAY_BUFFER, vertexIdxs, glCtx.DYNAMIC_DRAW)
 
-      glCtx.uniform1f(gainUniform, me.brightGain)
+      glCtx.uniform1f(gainUniform, (me.brightGain/me.bufferLen))
       glCtx.uniform1f(offsetUniform, me.brightOffset)
 
       glCtx.drawElements(glCtx.TRIANGLES, 2*me.bufferLen, glCtx.UNSIGNED_SHORT, 0)
