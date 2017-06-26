@@ -1,50 +1,120 @@
 'use strict'
 
-function StrobeTuner(audioCtx, glCtx) {
-  var me = this
-  var log = function(str) {
-    console.log(str)
+var log = function(str) {
+  console.log(str)
+}
+
+function FifoBuffer() {
+  var offset = 0
+  var bufferList = null
+  var last = null
+  var totalLength = 0
+
+  function BufferNode(buffer, next) {
+    this.buffer = buffer
+    this.next = next 
   }
 
+  this.len = function() {
+    return totalLength
+  }
+
+  this.empty = function() {
+    offset = 0
+    bufferList = null
+    last = null
+    totalLength = 0
+  }
+
+  this.push = function(ary) {
+    if (bufferList === null) {
+      bufferList = new BufferNode(ary, null)
+      last = bufferList
+    } else {
+      var newNode = new BufferNode(ary, null)
+      last.next = newNode
+      last = newNode
+    }
+    totalLength = totalLength + ary.length
+  }
+
+  // O(n^2) time and memory unfortunately
+  // also doesn't work when sz > totalLength
+  this.pop = function(sz) {
+    if (offset + sz < bufferList.buffer.length) {
+      offset += sz
+      totalLength -= sz
+
+      return bufferList.buffer.subarray(offset - sz, offset)
+    } else {
+      var ret = new Float32Array(sz)
+      var numCollected = 0
+
+      while (numCollected < sz && bufferList !== null) {
+        var numLeft = bufferList.buffer.length - offset
+        for (var i = offset; i < bufferList.buffer.length && numCollected < sz; i++) {
+          ret[numCollected] = bufferList.buffer[i]
+          numCollected++
+          numLeft--
+        }
+
+        if (numLeft === 0) {
+          offset = 0
+          bufferList = bufferList.next
+          if (bufferList === null) {
+            last = null
+          }
+        }
+      }
+      totalLength -= numCollected
+
+      return ret
+    }
+  }
+}
+
+function StrobeTuner(audioCtx, glCtx) {
+  var me = this
+  
   // Audio related stuff
   this.buffer = new Float32Array(StrobeTuner.BUF_SZ)
-  this.bufferLen = StrobeTuner.BUF_SZ
-  this.sampleRate = 0
+  this.fifo = new FifoBuffer()
+  this.sampleRate = audioCtx.sampleRate
 
   this.baseFrequency = 440.0
   this.sampleOffset = 0
 
   this.autoGain = true
 
-  this.newData = false
-  this.audioNode = audioCtx.createScriptProcessor(256)
+  var audioCount = 0
+  this.audioNode = audioCtx.createScriptProcessor(256, 1, 1)
   this.audioNode.onaudioprocess = function(e) {
     var buf = e.inputBuffer
+    audioCount += buf.length
     // log('got data')
-    // log(buf.length)
 
-    me.sampleRate = buf.sampleRate
-    if (buf.length >= me.bufferLen) {
-      // resize the buffer
-      if (me.buffer.length > StrobeTuner.BUF_SZ) {
-        log('audio overflow!')
+    var ary = new Float32Array(buf.length)
+    buf.copyFromChannel(ary, 0)
+    me.fifo.push(ary)
+  }
+  this.pullFromFifo = function(sz) {
+    var buf = this.fifo.pop(sz)
+    if (sz > this.buffer.length) {
+      for (var i = 0; i < this.buffer.length; i++) {
+        this.buffer[i] = buf[sz - this.buffer.length + i]
       }
-
-      buf.copyFromChannel(me.buffer, 0, buf.length - me.bufferLen)
     } else {
-      me.buffer.copyWithin(0, buf.length)
-      buf.copyFromChannel(me.buffer.subarray(me.bufferLen - buf.length), 0, 0)
+      this.buffer.copyWithin(0, sz)
+      for (var i = 0; i < sz; i++) {
+        this.buffer[this.buffer.length - sz + i] = buf[i]
+      }
     }
 
-    me.sampleOffset = me.sampleOffset + buf.length
-    me.sampleOffset = me.sampleOffset - Math.floor(me.sampleOffset*(me.baseFrequency/(1000*me.sampleRate)))/(me.baseFrequency/(1000*me.sampleRate))
+    this.sampleOffset += sz
+    this.sampleOffset = this.sampleOffset - Math.floor(me.sampleOffset*(me.baseFrequency/(1000*me.sampleRate)))/(me.baseFrequency/(1000*me.sampleRate))
 
-    me.newData = true
-  }
-  this.flushBuffer = function() {
-    this.newData = false
-  }
 
+  }
 
   // WebGL related stuff
   var setupShader = function(source, type) {
@@ -74,6 +144,7 @@ function StrobeTuner(audioCtx, glCtx) {
   }
 
   var draw = null
+  var resetDraw = null
   var clearGlState = null
 
   this.brightGain = 100.00
@@ -149,95 +220,119 @@ function StrobeTuner(audioCtx, glCtx) {
     var vertexCoordBuf = glCtx.createBuffer()
     var vertexIndexBuf = glCtx.createBuffer()
     inited = true
+    var bufferReady = false
 
+    var lastTime = 0
+    var startTime = 0
+    var lastLogTime = 0
     draw = function() {
+      var now = performance.now()
+      var dt = now - lastTime
+      var firstRun = lastTime === 0
+      lastTime = now
+      // log(dt)
+
       if (!inited) {
         return
       }
-      if (!me.newData) {
-        return
-      }
-      // console.log(me.bufferLen)
-      console.log(me.sampleOffset)
-      // glCtx.enableVertexAttribArray(vertexTexCoord)
-
-      var vertexData = new Float32Array(4*(2+3)*me.bufferLen)
-      var vertexIdxs = new Uint16Array(2*3*me.bufferLen)
-
-      var scale = 1.0
-      if (me.autoGain) {
-        /*
-        var bufMax = 0.0001
-        for (var i = 0; i < me.bufferLen; i++) {
-          var absVal = Math.abs(me.buffer[i])
-          if (bufMax < absVal) {
-            bufMax = absVal
+      if (!firstRun) {
+        if (!bufferReady && me.fifo.len() > StrobeTuner.MIN_FIFO_SZ) {
+          bufferReady = true
+        }
+        if (bufferReady) {
+          var numFrames = Math.floor(dt*me.sampleRate/1000)
+          // log('frames ' + numFrames)
+          if (me.fifo.len() < numFrames) {
+            log('underflow')
+            return
           }
+          if (now - lastLogTime > 1000) {
+            log('rate ' + 1000 * audioCount / (now-startTime))
+            lastLogTime = now
+          }
+          me.pullFromFifo(numFrames)
+
+          var vertexData = new Float32Array(4*(2+3)*me.buffer.length)
+          var vertexIdxs = new Uint16Array(2*3*me.buffer.length)
+
+          var scale = 1.0
+          if (me.autoGain) {
+            var bufMax = 0.0001
+            for (var i = 0; i < me.buffer.length; i++) {
+              var absVal = Math.abs(me.buffer[i])
+              if (bufMax < absVal) {
+                bufMax = absVal
+              }
+            }
+          }
+
+          for (var i = 0; i < me.buffer.length; i++) {
+            var curOffset = (me.sampleOffset - me.buffer.length + i)*me.baseFrequency/me.sampleRate
+            var phaseOffset = (curOffset + 0.5) - Math.floor(curOffset + 0.5)
+
+            var val = me.buffer[i]*scale
+            vertexData[(2+3)*(4*i+0) + 0] = 1.0
+            vertexData[(2+3)*(4*i+0) + 1] = 2.0 + phaseOffset
+            vertexData[(2+3)*(4*i+0) + 2] = 1.0
+            vertexData[(2+3)*(4*i+0) + 3] = 2.0
+            vertexData[(2+3)*(4*i+0) + 4] = val
+
+            vertexData[(2+3)*(4*i+1) + 0] = 1.0
+            vertexData[(2+3)*(4*i+1) + 1] = -2.0 + phaseOffset
+            vertexData[(2+3)*(4*i+1) + 2] = 1.0
+            vertexData[(2+3)*(4*i+1) + 3] = 0.0
+            vertexData[(2+3)*(4*i+1) + 4] = val
+
+            vertexData[(2+3)*(4*i+2) + 0] = -1.0
+            vertexData[(2+3)*(4*i+2) + 1] = -2.0 + phaseOffset
+            vertexData[(2+3)*(4*i+2) + 2] = 0.0
+            vertexData[(2+3)*(4*i+2) + 3] = 0.0
+            vertexData[(2+3)*(4*i+2) + 4] = val
+
+            vertexData[(2+3)*(4*i+3) + 0] = -1.0
+            vertexData[(2+3)*(4*i+3) + 1] = 2.0 + phaseOffset
+            vertexData[(2+3)*(4*i+3) + 2] = 0.0
+            vertexData[(2+3)*(4*i+3) + 3] = 2.0
+            vertexData[(2+3)*(4*i+3) + 4] = val
+          }
+          for (var i = 0; i < me.buffer.length; i++) {
+            vertexIdxs[2*3*i + 0] = 4*i + 0;
+            vertexIdxs[2*3*i + 1] = 4*i + 1;
+            vertexIdxs[2*3*i + 2] = 4*i + 2;
+            vertexIdxs[2*3*i + 3] = 4*i + 0;
+            vertexIdxs[2*3*i + 4] = 4*i + 2;
+            vertexIdxs[2*3*i + 5] = 4*i + 3;
+          }
+
+          // log(me.buffer.length)
+          glCtx.bindBuffer(glCtx.ARRAY_BUFFER, vertexBuf)
+          glCtx.bufferData(glCtx.ARRAY_BUFFER, vertexData, glCtx.DYNAMIC_DRAW)
+
+          glCtx.clear(glCtx.COLOR_BUFFER_BIT)
+
+          glCtx.vertexAttribPointer(vertexPosition, 2, glCtx.FLOAT, false, 5*4, 0)
+          glCtx.vertexAttribPointer(vertexTexCoord, 3, glCtx.FLOAT, false, 5*4, 2*4)
+
+          glCtx.bindBuffer(glCtx.ELEMENT_ARRAY_BUFFER, vertexIndexBuf)
+          glCtx.bufferData(glCtx.ELEMENT_ARRAY_BUFFER, vertexIdxs, glCtx.DYNAMIC_DRAW)
+
+          glCtx.uniform1f(gainUniform, (me.brightGain/me.buffer.length))
+          glCtx.uniform1f(offsetUniform, me.brightOffset/me.buffer.length)
+
+          glCtx.drawElements(glCtx.TRIANGLES, 2*me.buffer.length, glCtx.UNSIGNED_SHORT, 0)
         }
-        */
-        var bufMax = 0.0
-        for (var i = 0; i < me.bufferLen; i++) {
-          bufMax += me.buffer[i]*me.buffer[i]
-        }
-        bufMax = Math.sqrt(bufMax/me.bufferLen)
-        scale = 0.01/bufMax
+        // glCtx.finish()
+      } else {
+        // flush out any old data
+        me.fifo.empty()
+        startTime = now
       }
 
-      for (var i = 0; i < me.bufferLen; i++) {
-        var curOffset = (me.sampleOffset - me.bufferLen + i)*me.baseFrequency/me.sampleRate
-        var phaseOffset = (curOffset + 0.5) - Math.floor(curOffset + 0.5)
+    }
 
-        var val = me.buffer[i]*scale
-        vertexData[(2+3)*(4*i+0) + 0] = 1.0
-        vertexData[(2+3)*(4*i+0) + 1] = 2.0 + phaseOffset
-        vertexData[(2+3)*(4*i+0) + 2] = 1.0
-        vertexData[(2+3)*(4*i+0) + 3] = 2.0
-        vertexData[(2+3)*(4*i+0) + 4] = val
-
-        vertexData[(2+3)*(4*i+1) + 0] = 1.0
-        vertexData[(2+3)*(4*i+1) + 1] = -2.0 + phaseOffset
-        vertexData[(2+3)*(4*i+1) + 2] = 1.0
-        vertexData[(2+3)*(4*i+1) + 3] = 0.0
-        vertexData[(2+3)*(4*i+1) + 4] = val
-
-        vertexData[(2+3)*(4*i+2) + 0] = -1.0
-        vertexData[(2+3)*(4*i+2) + 1] = -2.0 + phaseOffset
-        vertexData[(2+3)*(4*i+2) + 2] = 0.0
-        vertexData[(2+3)*(4*i+2) + 3] = 0.0
-        vertexData[(2+3)*(4*i+2) + 4] = val
-
-        vertexData[(2+3)*(4*i+3) + 0] = -1.0
-        vertexData[(2+3)*(4*i+3) + 1] = 2.0 + phaseOffset
-        vertexData[(2+3)*(4*i+3) + 2] = 0.0
-        vertexData[(2+3)*(4*i+3) + 3] = 2.0
-        vertexData[(2+3)*(4*i+3) + 4] = val
-      }
-      for (var i = 0; i < me.bufferLen; i++) {
-        vertexIdxs[2*3*i + 0] = 4*i + 0;
-        vertexIdxs[2*3*i + 1] = 4*i + 1;
-        vertexIdxs[2*3*i + 2] = 4*i + 2;
-        vertexIdxs[2*3*i + 3] = 4*i + 0;
-        vertexIdxs[2*3*i + 4] = 4*i + 2;
-        vertexIdxs[2*3*i + 5] = 4*i + 3;
-      }
-
-      // log(me.bufferLen)
-      glCtx.bindBuffer(glCtx.ARRAY_BUFFER, vertexBuf)
-      glCtx.bufferData(glCtx.ARRAY_BUFFER, vertexData, glCtx.DYNAMIC_DRAW)
-
-      glCtx.clear(glCtx.COLOR_BUFFER_BIT)
-
-      glCtx.vertexAttribPointer(vertexPosition, 2, glCtx.FLOAT, false, 5*4, 0)
-      glCtx.vertexAttribPointer(vertexTexCoord, 3, glCtx.FLOAT, false, 5*4, 2*4)
-
-      glCtx.bindBuffer(glCtx.ELEMENT_ARRAY_BUFFER, vertexIndexBuf)
-      glCtx.bufferData(glCtx.ELEMENT_ARRAY_BUFFER, vertexIdxs, glCtx.DYNAMIC_DRAW)
-
-      glCtx.uniform1f(gainUniform, (me.brightGain/me.bufferLen))
-      glCtx.uniform1f(offsetUniform, me.brightOffset/me.bufferLen)
-
-      glCtx.drawElements(glCtx.TRIANGLES, 2*me.bufferLen, glCtx.UNSIGNED_SHORT, 0)
-      glCtx.finish()
+    resetDraw = function() {
+      lastTime = 0
+      bufferReady = false
     }
 
     clearGlState = function() {
@@ -246,13 +341,7 @@ function StrobeTuner(audioCtx, glCtx) {
   }
 
   this.drawStrobe = function() {
-    if (!this.newData) {
-      // log('underflow')
-      return
-    }
-
     draw()
-    this.flushBuffer()
   }
 
   // used to set the mode
@@ -262,6 +351,10 @@ function StrobeTuner(audioCtx, glCtx) {
     }
     clearGlState = null
     draw = null
+    resetDraw = null
+  }
+  this.resetDraw = function() {
+    resetDraw()
   }
   this.useManyPoly = initManyPoly
 
@@ -269,5 +362,5 @@ function StrobeTuner(audioCtx, glCtx) {
   this.useManyPoly()
 }
 // about the number of values received in 1/30th of a second
-StrobeTuner.BUF_SZ = 2048
-StrobeTuner.MAX_BUF_SZ = 16384
+StrobeTuner.BUF_SZ = 4096
+StrobeTuner.MIN_FIFO_SZ = 8192
