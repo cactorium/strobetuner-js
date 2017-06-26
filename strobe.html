@@ -53,14 +53,14 @@ window.onload = function() {
   var connectMicrophone = function() {
       microphoneNode.connect(gainNode)
       gainNode.connect(strobe.audioNode)
-      strobe.audioNode.connect(audioCtx.destination)
+      // strobe.audioNode.connect(audioCtx.destination)
   }
   var disconnectMicrophone = function() {
     if (microphoneNode !== null) {
       microphoneNode.disconnect()
     }
     if (strobe !== null && strobe.audioNode !== null) {
-      strobe.audioNode.disconnect()
+      // strobe.audioNode.disconnect()
     }
   }
 

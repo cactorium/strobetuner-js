@@ -4,81 +4,11 @@ var log = function(str) {
   console.log(str)
 }
 
-function FifoBuffer() {
-  var offset = 0
-  var bufferList = null
-  var last = null
-  var totalLength = 0
-
-  function BufferNode(buffer, next) {
-    this.buffer = buffer
-    this.next = next 
-  }
-
-  this.len = function() {
-    return totalLength
-  }
-
-  this.empty = function() {
-    offset = 0
-    bufferList = null
-    last = null
-    totalLength = 0
-  }
-
-  this.push = function(ary) {
-    if (bufferList === null) {
-      bufferList = new BufferNode(ary, null)
-      last = bufferList
-    } else {
-      var newNode = new BufferNode(ary, null)
-      last.next = newNode
-      last = newNode
-    }
-    totalLength = totalLength + ary.length
-  }
-
-  // O(n^2) time and memory unfortunately
-  // also doesn't work when sz > totalLength
-  this.pop = function(sz) {
-    if (offset + sz < bufferList.buffer.length) {
-      offset += sz
-      totalLength -= sz
-
-      return bufferList.buffer.subarray(offset - sz, offset)
-    } else {
-      var ret = new Float32Array(sz)
-      var numCollected = 0
-
-      while (numCollected < sz && bufferList !== null) {
-        var numLeft = bufferList.buffer.length - offset
-        for (var i = offset; i < bufferList.buffer.length && numCollected < sz; i++) {
-          ret[numCollected] = bufferList.buffer[i]
-          numCollected++
-          numLeft--
-        }
-
-        if (numLeft === 0) {
-          offset = 0
-          bufferList = bufferList.next
-          if (bufferList === null) {
-            last = null
-          }
-        }
-      }
-      totalLength -= numCollected
-
-      return ret
-    }
-  }
-}
-
 function StrobeTuner(audioCtx, glCtx) {
   var me = this
   
   // Audio related stuff
   this.buffer = new Float32Array(StrobeTuner.BUF_SZ)
-  this.fifo = new FifoBuffer()
   this.sampleRate = audioCtx.sampleRate
 
   this.baseFrequency = 440.0
@@ -87,33 +17,12 @@ function StrobeTuner(audioCtx, glCtx) {
   this.autoGain = true
 
   var audioCount = 0
-  this.audioNode = audioCtx.createScriptProcessor(256, 1, 1)
-  this.audioNode.onaudioprocess = function(e) {
-    var buf = e.inputBuffer
-    audioCount += buf.length
-    // log('got data')
-
-    var ary = new Float32Array(buf.length)
-    buf.copyFromChannel(ary, 0)
-    me.fifo.push(ary)
-  }
+  this.audioNode = new AnalyserNode(audioCtx)
   this.pullFromFifo = function(sz) {
-    var buf = this.fifo.pop(sz)
-    if (sz > this.buffer.length) {
-      for (var i = 0; i < this.buffer.length; i++) {
-        this.buffer[i] = buf[sz - this.buffer.length + i]
-      }
-    } else {
-      this.buffer.copyWithin(0, sz)
-      for (var i = 0; i < sz; i++) {
-        this.buffer[this.buffer.length - sz + i] = buf[i]
-      }
-    }
+    this.audioNode.getFloatTimeDomainData(this.buffer)
 
     this.sampleOffset += sz
     this.sampleOffset = this.sampleOffset - Math.floor(me.sampleOffset*(me.baseFrequency/(1000*me.sampleRate)))/(me.baseFrequency/(1000*me.sampleRate))
-
-
   }
 
   // WebGL related stuff
@@ -236,16 +145,9 @@ function StrobeTuner(audioCtx, glCtx) {
         return
       }
       if (!firstRun) {
-        if (!bufferReady && me.fifo.len() > StrobeTuner.MIN_FIFO_SZ) {
-          bufferReady = true
-        }
+        bufferReady = true
         if (bufferReady) {
           var numFrames = Math.floor(dt*me.sampleRate/1000)
-          // log('frames ' + numFrames)
-          if (me.fifo.len() < numFrames) {
-            log('underflow')
-            return
-          }
           if (now - lastLogTime > 1000) {
             log('rate ' + 1000 * audioCount / (now-startTime))
             lastLogTime = now
@@ -324,7 +226,6 @@ function StrobeTuner(audioCtx, glCtx) {
         // glCtx.finish()
       } else {
         // flush out any old data
-        me.fifo.empty()
         startTime = now
       }
 
@@ -362,5 +263,5 @@ function StrobeTuner(audioCtx, glCtx) {
   this.useManyPoly()
 }
 // about the number of values received in 1/30th of a second
-StrobeTuner.BUF_SZ = 4096
+StrobeTuner.BUF_SZ = 2048
 StrobeTuner.MIN_FIFO_SZ = 8192
