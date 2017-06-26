@@ -1,0 +1,5 @@
+An attempt at making an open source virtual strobe tuner!
+
+Currently failing because of the large amount of jitter weird issues with the Audio API,
+working on a desktop (Linux) version in a different repo to test out some ideas/see if this is
+a browser-related issue
