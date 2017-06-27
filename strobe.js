@@ -17,7 +17,7 @@ function StrobeTuner(audioCtx, glCtx) {
   this.autoGain = true
 
   this.newData = false
-  this.audioNode = audioCtx.createScriptProcessor(256)
+  this.audioNode = audioCtx.createScriptProcessor(1024)
   this.audioNode.onaudioprocess = function(e) {
     var buf = e.inputBuffer
     // log('got data')
