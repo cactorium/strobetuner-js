@@ -8,7 +8,7 @@ function StrobeTuner(audioCtx, glCtx) {
 
   // Audio related stuff
   this.buffer = new Float32Array(StrobeTuner.BUF_SZ)
-  this.bufferLen = 0
+  this.bufferLen = StrobeTuner.BUF_SZ
   this.sampleRate = 0
 
   this.baseFrequency = 440.0
@@ -17,50 +17,31 @@ function StrobeTuner(audioCtx, glCtx) {
   this.autoGain = true
 
   this.newData = false
-  this.audioNode = audioCtx.createScriptProcessor(256)
+  this.audioNode = audioCtx.createScriptProcessor(1024)
   this.audioNode.onaudioprocess = function(e) {
     var buf = e.inputBuffer
     // log('got data')
-    // log(buf)
+    // log(buf.length)
 
     me.sampleRate = buf.sampleRate
-    if (buf.length + me.bufferLen > me.buffer.length) {
-      log('resizing buffer')
+    if (buf.length >= me.bufferLen) {
       // resize the buffer
-      if (me.buffer.length > StrobeTuner.MAX_BUF_SZ) {
+      if (me.buffer.length > StrobeTuner.BUF_SZ) {
         log('audio overflow!')
-        return
       }
 
-      var newLen = 2*me.buffer.length
-      while (newLen < (buf.len + me.bufferLen)) {
-        newLen = 2*newLen
-      }
-      // log(newLen)
-
-      var newBuffer = new Float32Array(newLen)
-      for (var i = 0; i < me.bufferLen; i++) {
-        newBuffer[i] = me.buffer[i]
-      }
-      buf.copyFromChannel(
-        newBuffer.subarray(me.bufferLen, me.bufferLen + buf.length),
-        0)
-      // log(newBuffer)
-
-      me.buffer = newBuffer
-      me.bufLen = me.bufferLen + buf.length
-      me.newData = true
+      buf.copyFromChannel(me.buffer, 0, buf.length - me.bufferLen)
     } else {
-      buf.copyFromChannel(
-        me.buffer.subarray(me.bufferLen, me.bufferLen + buf.length),
-        0)
-      // log(me.buffer)
-      me.bufferLen = me.bufferLen + buf.length
-      me.newData = true
+      me.buffer.copyWithin(0, buf.length)
+      buf.copyFromChannel(me.buffer.subarray(me.bufferLen - buf.length), 0, 0)
     }
+
+    me.sampleOffset = me.sampleOffset + buf.length
+    me.sampleOffset = me.sampleOffset - Math.floor(me.sampleOffset*(me.baseFrequency/(1000*me.sampleRate)))/(me.baseFrequency/(1000*me.sampleRate))
+
+    me.newData = true
   }
   this.flushBuffer = function() {
-    this.bufferLen = 0
     this.newData = false
   }
 
@@ -173,10 +154,10 @@ function StrobeTuner(audioCtx, glCtx) {
       if (!inited) {
         return
       }
-      if (me.bufferLen <= 0) {
+      if (!me.newData) {
         return
       }
-      console.log(me.bufferLen)
+      // console.log(me.bufferLen)
       console.log(me.sampleOffset)
       // glCtx.enableVertexAttribArray(vertexTexCoord)
 
@@ -185,18 +166,25 @@ function StrobeTuner(audioCtx, glCtx) {
 
       var scale = 1.0
       if (me.autoGain) {
-        var bufMax = 0.001
+        /*
+        var bufMax = 0.0001
         for (var i = 0; i < me.bufferLen; i++) {
           var absVal = Math.abs(me.buffer[i])
           if (bufMax < absVal) {
             bufMax = absVal
           }
         }
+        */
+        var bufMax = 0.0
+        for (var i = 0; i < me.bufferLen; i++) {
+          bufMax += me.buffer[i]*me.buffer[i]
+        }
+        bufMax = Math.sqrt(bufMax/me.bufferLen)
         scale = 0.01/bufMax
       }
 
       for (var i = 0; i < me.bufferLen; i++) {
-        var curOffset = (me.sampleOffset + i)*me.baseFrequency/me.sampleRate
+        var curOffset = (me.sampleOffset - me.bufferLen + i)*me.baseFrequency/me.sampleRate
         var phaseOffset = (curOffset + 0.5) - Math.floor(curOffset + 0.5)
 
         var val = me.buffer[i]*scale
@@ -224,9 +212,6 @@ function StrobeTuner(audioCtx, glCtx) {
         vertexData[(2+3)*(4*i+3) + 3] = 2.0
         vertexData[(2+3)*(4*i+3) + 4] = val
       }
-      me.sampleOffset = me.sampleOffset + me.bufferLen
-      me.sampleOffset = me.sampleOffset - Math.floor(me.sampleOffset*me.baseFrequency/me.sampleRate)/(me.baseFrequency/me.sampleRate)
-
       for (var i = 0; i < me.bufferLen; i++) {
         vertexIdxs[2*3*i + 0] = 4*i + 0;
         vertexIdxs[2*3*i + 1] = 4*i + 1;
