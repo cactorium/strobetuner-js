@@ -8,7 +8,6 @@ function StrobeTuner(audioCtx, glCtx) {
 
   // Audio related stuff
   this.buffer = new Float32Array(StrobeTuner.BUF_SZ)
-  this.bufferLen = StrobeTuner.BUF_SZ
   this.sampleRate = 0
 
   this.baseFrequency = 440.0
@@ -24,20 +23,21 @@ function StrobeTuner(audioCtx, glCtx) {
     // log(buf.length)
 
     me.sampleRate = buf.sampleRate
-    if (buf.length >= me.bufferLen) {
-      // resize the buffer
+    if (buf.length >= me.buffer.length) {
+      // overwrite the buffer
       if (me.buffer.length > StrobeTuner.BUF_SZ) {
         log('audio overflow!')
       }
 
-      buf.copyFromChannel(me.buffer, 0, buf.length - me.bufferLen)
+      buf.copyFromChannel(me.buffer, 0, buf.length - me.buffer.length)
     } else {
+      // shift overwrite the buffer
       me.buffer.copyWithin(0, buf.length)
-      buf.copyFromChannel(me.buffer.subarray(me.bufferLen - buf.length), 0, 0)
+      buf.copyFromChannel(me.buffer.subarray(me.buffer.length - buf.length), 0, 0)
     }
 
     me.sampleOffset = me.sampleOffset + buf.length
-    me.sampleOffset = me.sampleOffset - Math.floor(me.sampleOffset*(me.baseFrequency/(1000*me.sampleRate)))/(me.baseFrequency/(1000*me.sampleRate))
+    me.sampleOffset = me.sampleOffset - Math.floor(me.sampleOffset*(me.baseFrequency/(10000*me.sampleRate)))/(me.baseFrequency/(10000*me.sampleRate))
 
     me.newData = true
   }
@@ -157,18 +157,18 @@ function StrobeTuner(audioCtx, glCtx) {
       if (!me.newData) {
         return
       }
-      // console.log(me.bufferLen)
+      // console.log(me.buffer.length)
       console.log(me.sampleOffset)
       // glCtx.enableVertexAttribArray(vertexTexCoord)
 
-      var vertexData = new Float32Array(4*(2+3)*me.bufferLen)
-      var vertexIdxs = new Uint16Array(2*3*me.bufferLen)
+      var vertexData = new Float32Array(4*(2+3)*me.buffer.length)
+      var vertexIdxs = new Uint16Array(2*3*me.buffer.length)
 
       var scale = 1.0
       if (me.autoGain) {
         /*
         var bufMax = 0.0001
-        for (var i = 0; i < me.bufferLen; i++) {
+        for (var i = 0; i < me.buffer.length; i++) {
           var absVal = Math.abs(me.buffer[i])
           if (bufMax < absVal) {
             bufMax = absVal
@@ -176,15 +176,15 @@ function StrobeTuner(audioCtx, glCtx) {
         }
         */
         var bufMax = 0.0
-        for (var i = 0; i < me.bufferLen; i++) {
+        for (var i = 0; i < me.buffer.length; i++) {
           bufMax += me.buffer[i]*me.buffer[i]
         }
-        bufMax = Math.sqrt(bufMax/me.bufferLen)
+        bufMax = Math.sqrt(bufMax/me.buffer.length)
         scale = 0.01/bufMax
       }
 
-      for (var i = 0; i < me.bufferLen; i++) {
-        var curOffset = (me.sampleOffset - me.bufferLen + i)*me.baseFrequency/me.sampleRate
+      for (var i = 0; i < me.buffer.length; i++) {
+        var curOffset = (me.sampleOffset - me.buffer.length + i)*me.baseFrequency/me.sampleRate
         var phaseOffset = (curOffset + 0.5) - Math.floor(curOffset + 0.5)
 
         var val = me.buffer[i]*scale
@@ -212,7 +212,7 @@ function StrobeTuner(audioCtx, glCtx) {
         vertexData[(2+3)*(4*i+3) + 3] = 2.0
         vertexData[(2+3)*(4*i+3) + 4] = val
       }
-      for (var i = 0; i < me.bufferLen; i++) {
+      for (var i = 0; i < me.buffer.length; i++) {
         vertexIdxs[2*3*i + 0] = 4*i + 0;
         vertexIdxs[2*3*i + 1] = 4*i + 1;
         vertexIdxs[2*3*i + 2] = 4*i + 2;
@@ -221,7 +221,7 @@ function StrobeTuner(audioCtx, glCtx) {
         vertexIdxs[2*3*i + 5] = 4*i + 3;
       }
 
-      // log(me.bufferLen)
+      // log(me.buffer.length)
       glCtx.bindBuffer(glCtx.ARRAY_BUFFER, vertexBuf)
       glCtx.bufferData(glCtx.ARRAY_BUFFER, vertexData, glCtx.DYNAMIC_DRAW)
 
@@ -233,10 +233,10 @@ function StrobeTuner(audioCtx, glCtx) {
       glCtx.bindBuffer(glCtx.ELEMENT_ARRAY_BUFFER, vertexIndexBuf)
       glCtx.bufferData(glCtx.ELEMENT_ARRAY_BUFFER, vertexIdxs, glCtx.DYNAMIC_DRAW)
 
-      glCtx.uniform1f(gainUniform, (me.brightGain/me.bufferLen))
-      glCtx.uniform1f(offsetUniform, me.brightOffset/me.bufferLen)
+      glCtx.uniform1f(gainUniform, (me.brightGain/me.buffer.length))
+      glCtx.uniform1f(offsetUniform, me.brightOffset/me.buffer.length)
 
-      glCtx.drawElements(glCtx.TRIANGLES, 2*me.bufferLen, glCtx.UNSIGNED_SHORT, 0)
+      glCtx.drawElements(glCtx.TRIANGLES, 2*me.buffer.length, glCtx.UNSIGNED_SHORT, 0)
       glCtx.finish()
     }
 
