@@ -16,31 +16,27 @@ function StrobeTuner(audioCtx, glCtx) {
   this.autoGain = true
 
   this.newData = false
-  this.audioNode = audioCtx.createScriptProcessor(512)
-  this.audioNode.onaudioprocess = function(e) {
-    var buf = e.inputBuffer
-    // log('got data')
-    // log(buf.length)
-
-    me.sampleRate = buf.sampleRate
-    if (buf.length >= me.buffer.length) {
+  this.pushFromInputBuffer = function(buf) {
+    this.sampleRate = buf.sampleRate
+    if (buf.length >= this.buffer.length) {
       // overwrite the buffer
-      if (me.buffer.length > StrobeTuner.BUF_SZ) {
+      if (this.buffer.length > StrobeTuner.BUF_SZ) {
         log('audio overflow!')
       }
 
-      buf.copyFromChannel(me.buffer, 0, buf.length - me.buffer.length)
+      buf.copyFromChannel(this.buffer, 0, buf.length - this.buffer.length)
     } else {
       // shift overwrite the buffer
-      me.buffer.copyWithin(0, buf.length)
-      buf.copyFromChannel(me.buffer.subarray(me.buffer.length - buf.length), 0, 0)
+      this.buffer.copyWithin(0, buf.length)
+      buf.copyFromChannel(this.buffer.subarray(this.buffer.length - buf.length), 0, 0)
     }
 
-    me.sampleOffset = me.sampleOffset + buf.length
-    me.sampleOffset = me.sampleOffset - Math.floor(me.sampleOffset*(me.baseFrequency/(10000*me.sampleRate)))/(me.baseFrequency/(10000*me.sampleRate))
+    this.sampleOffset = this.sampleOffset + buf.length
+    this.sampleOffset = this.sampleOffset - Math.floor(this.sampleOffset*(this.baseFrequency/(10000*this.sampleRate)))/(this.baseFrequency/(10000*this.sampleRate))
 
-    me.newData = true
+    this.newData = true
   }
+
   this.flushBuffer = function() {
     this.newData = false
   }

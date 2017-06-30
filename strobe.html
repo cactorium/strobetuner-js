@@ -12,6 +12,7 @@ var active = null
 var audioCtx = null
 var microphoneNode = null
 var gainNode = null
+var processorNode = null
 var strobe = null
 
 var glCtx = null
@@ -36,7 +37,12 @@ window.onload = function() {
   audioCtx = new AudioContext()
   microphoneNode = null
   gainNode = audioCtx.createGain()
+  processorNode = audioCtx.createScriptProcessor(512)
   strobe = new StrobeTuner(audioCtx, glCtx)
+
+  processorNode.addEventListener('audioprocess', function(e) {
+    strobe.pushFromInputBuffer(e.inputBuffer)
+  })
 
   var getMicrophone = function(cb) {
     navigator.mediaDevices.getUserMedia({audio: true}).
@@ -54,8 +60,8 @@ window.onload = function() {
   }
   var connectMicrophone = function() {
       microphoneNode.connect(gainNode)
-      gainNode.connect(strobe.audioNode)
-      strobe.audioNode.connect(audioCtx.destination)
+      gainNode.connect(processorNode)
+      processorNode.connect(audioCtx.destination)
   }
   var disconnectMicrophone = function() {
     if (microphoneNode !== null) {
