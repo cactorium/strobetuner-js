@@ -2,214 +2,14 @@
 <html>
   <head>
     <title>HTML5 Strobe Tuner</title>
-    <script src=strobe.js type=text/javascript></script>
+    <!-- strobe tuner code here -->
+    <script src=strobe-tuner.js type=text/javascript></script>
+    <!-- code for frequency to note conversion -->
     <script src=tone.js type=text/javascript></script>
-  <script type=text/javascript>
-'use strict'
-var canvas = null
-var active = null
-
-var audioCtx = null
-var microphoneNode = null
-var gainNode = null
-var processorNode = null
-var strobe = null
-
-var glCtx = null
-
-var curTone = null
-
-function lin2db(x) {
-  return 10*Math.log10(x)
-}
-
-function db2lin(x) {
-  return Math.pow(10, 0.1*x)
-}
-
-
-window.onload = function() {
-  canvas = document.getElementById('strobe')
-  active = document.getElementById('strobe-active')
-
-  glCtx = canvas.getContext('webgl')
-
-  audioCtx = new AudioContext()
-  microphoneNode = null
-  gainNode = audioCtx.createGain()
-  processorNode = audioCtx.createScriptProcessor(512)
-  strobe = new StrobeTuner(audioCtx, glCtx)
-
-  processorNode.addEventListener('audioprocess', function(e) {
-    strobe.pushFromInputBuffer(e.inputBuffer)
-  })
-
-  var getMicrophone = function(cb) {
-    navigator.mediaDevices.getUserMedia({audio: true}).
-      then(function(stream) {
-        microphoneNode = audioCtx.createMediaStreamSource(stream)
-
-          if (cb !== null) {
-          cb()
-        }
-      }).
-      catch(function(err) {
-        console.log('error on getting microphone: ' + err)
-        // TODO log message on UI
-      })
-  }
-  var connectMicrophone = function() {
-      microphoneNode.connect(gainNode)
-      gainNode.connect(processorNode)
-      processorNode.connect(audioCtx.destination)
-  }
-  var disconnectMicrophone = function() {
-    if (microphoneNode !== null) {
-      microphoneNode.disconnect()
-    }
-    if (strobe !== null && strobe.audioNode !== null) {
-      strobe.audioNode.disconnect()
-    }
-  }
-
-  var runDraw = false
-  var drawId = null
-  var draw = function() {
-    // console.log('draw loop')
-    if (runDraw) {
-      if (strobe !== null) {
-        strobe.drawStrobe()
-      }
-      drawId = window.requestAnimationFrame(draw)
-    }
-  }
-
-  var startDrawloop = function() {
-    runDraw = true
-    drawId = window.requestAnimationFrame(draw)
-  }
-
-  var stopDrawloop = function() {
-    runDraw = false
-    if (drawId !== null) {
-      window.cancelAnimationFrame(drawId)
-    }
-    drawId = null
-  }
-
-  active.addEventListener('change', function() {
-    if (active.checked) {
-      if (microphoneNode !== null) {
-        connectMicrophone()
-        startDrawloop()
-      } else {
-        getMicrophone(function() {
-          connectMicrophone()
-          startDrawloop()
-        })
-      }
-    } else {
-      disconnectMicrophone()
-      stopDrawloop()
-    }
-  })
-
-  var pitch = document.getElementById('strobe-pitch')
-  var gain = document.getElementById('strobe-gain')
-  var gainVal = document.getElementById('strobe-gain-val')
-  var bright = document.getElementById('strobe-bright')
-  var brightVal = document.getElementById('strobe-bright-val')
-  var contrast = document.getElementById('strobe-contrast')
-  var contrastVal = document.getElementById('strobe-contrast-val')
-  var autoGain = document.getElementById('strobe-agc')
-
-  var downOctave = document.getElementById('strobe-down-octave')
-  var downSemi = document.getElementById('strobe-down-semitone')
-  var toneName = document.getElementById('strobe-name')
-  var upSemi = document.getElementById('strobe-up-semitone')
-  var upOctave = document.getElementById('strobe-up-octave')
-
-  var toneFreq = document.getElementById('strobe-tone')
-  var cents = document.getElementById('strobe-cents')
-  var centsVal = document.getElementById('strobe-cents-val')
-
-  curTone = new Tone(toneName.value, parseInt(pitch.value), parseInt(cents.value))
-
-  // initialize all values based on StrobeTuner default values
-  toneFreq.textContent = curTone.pitch().toFixed(4)
-  strobe.baseFrequency = curTone.pitch()
-  toneName.value = curTone.toString()
-
-  gain.value = lin2db(gainNode.gain.value)
-  gainVal.textContent = lin2db(gainNode.gain.value).toString()
-  bright.value = strobe.brightOffset
-  brightVal.textContent = strobe.brightOffset.toString()
-  contrast.value = strobe.brightGain
-  contrastVal.textContent = strobe.brightGain.toString()
-
-  pitch.addEventListener('input', function() {
-    var newPitch = parseInt(pitch.value)
-    if (!Number.isNaN(newPitch))
-      curTone.base = newPitch
-  })
-
-  gain.addEventListener('input', function() {
-    gainNode.gain.value = db2lin(gain.value)
-    gainVal.textContent = lin2db(gainNode.gain.value).toFixed(2)
-    console.log(gainVal, gain.value, gainNode.gain.value, gainVal.textContent);
-  })
-  bright.addEventListener('input', function() {
-    strobe.brightOffset = bright.value
-    brightVal.textContent = bright.value.toString()
-  })
-  contrast.addEventListener('input', function() {
-    strobe.brightGain = contrast.value
-    contrastVal.textContent = contrast.value.toString()
-  })
-  autoGain.addEventListener('change', function() {
-    strobe.autoGain = autoGain.checked
-    gain.disabled = autoGain.checked && 'disabled'
-  })
-
-  var propagateToneChange = function() {
-    toneFreq.textContent = curTone.pitch().toFixed(4)
-    strobe.baseFrequency = curTone.pitch()
-    toneName.value = curTone.toString()
-  }
-  downOctave.addEventListener('click', function() {
-    curTone.lowerOctave()
-    propagateToneChange()
-  })
-  downSemi.addEventListener('click', function() {
-    curTone.lowerSemitone()
-    propagateToneChange()
-  })
-  toneName.addEventListener('change', function() {
-    var newTone = new Tone(toneName.value, parseInt(pitch.value), parseInt(cents.value))
-    curTone = newTone
-    propagateToneChange()
-  })
-  upSemi.addEventListener('click', function() {
-    curTone.raiseSemitone()
-    propagateToneChange()
-  })
-  upOctave.addEventListener('click', function() {
-    curTone.raiseOctave()
-    propagateToneChange()
-  })
-
-  cents.addEventListener('input', function() {
-    curTone.cents = cents.value
-    centsVal.value = parseInt(cents.value)
-    propagateToneChange()
-  })
-  centsVal.addEventListener('change', function() {
-    cents.value = parseInt(centsVal.value)
-    curTone.cents = parseInt(cents.value)
-    propagateToneChange()
-  })
-}
-  </script>
+    <!-- code for tracking frequency -->
+    <script src=tracker.js type=text/javascript></script>
+    <!-- logic for this page -->
+    <script src=strobe.js type=text/javascript></script>
   </head>
   <body>
     <div class=view-wrapper>
@@ -236,6 +36,13 @@ window.onload = function() {
       <span id=strobe-bright-val></span><br />
       Contrast: <input id=strobe-contrast type=range min=0 max=1000 step=0.01></input>
       <span id=strobe-contrast-val></span><br />
+    </div>
+    <br />
+    <div id=tracker-ui>
+      <input id=tracker-active type=checkbox>Activate frequency tracker</input><br />
+      Estimated frequency: <span id=tracker-val>--</span> Hz<br />
+      Threshold: <input id=tracker-threshold type=range min=0 max=50 step=0.1></input>
+      <span id=tracker-threshold-val></span><br />
     </div>
   </body>
 </html>
